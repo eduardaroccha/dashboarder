@@ -1,11 +1,4 @@
 <!DOCTYPE html>
-<script type="application/json" id="cowork-artifact-meta">
-{
-  "name": "Dashboard Mockup Eduarda",
-  "schemaVersion": 1,
-  "description": "Protótipo do dashboard (Fluxo Financeiro, Contratos, Leads/Orçamentos) para aprovação de Duda antes de publicar no GitHub Pages."
-}
-</script>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
@@ -222,13 +215,9 @@
   <!-- FINANCEIRO -->
   <div class="panel active" id="panel-financeiro">
     <h2 class="section-title">Fluxo <span class="accent">financeiro</span></h2>
-    <p class="section-sub">Dados de maio e junho de 2026, direto da sua planilha.</p>
+    <p class="section-sub">Dados ao vivo, direto da sua planilha.</p>
 
-    <div class="month-toggle">
-      <div class="month-btn" data-month="maio">Maio</div>
-      <div class="month-btn active" data-month="junho">Junho</div>
-      <div class="month-btn" data-month="julho" style="opacity:.5;">Julho <span style="font-weight:400;">(sem dados ainda)</span></div>
-    </div>
+    <div class="month-toggle" id="month-toggle"></div>
 
     <div class="grid kpis" style="margin-bottom:16px;">
       <div class="card kpi"><div class="label">Receita</div><div class="value" id="k-receita">R$ 15.304,78</div><div class="delta" id="k-receita-d"></div></div>
@@ -282,9 +271,6 @@
     <div class="filter-row">
       <select class="select-period" id="extrato-period">
         <option value="TODOS">Todos os meses</option>
-        <option value="MAIO">Maio</option>
-        <option value="JUNHO" selected>Junho</option>
-        <option value="JULHO" disabled>Julho (sem dados ainda)</option>
       </select>
     </div>
     <div class="filter-row" id="extrato-chips"></div>
@@ -310,10 +296,7 @@
     <p class="section-sub">Coisas fixas do mês — quem já pagou, quem falta, o que já foi pago e o que falta pagar.</p>
 
     <div class="filter-row">
-      <select class="select-period" id="checklist-period">
-        <option value="JUNHO" selected>Junho 2026</option>
-        <option value="JULHO">Julho 2026</option>
-      </select>
+      <select class="select-period" id="checklist-period"></select>
     </div>
 
     <div class="grid two" style="align-items:start;">
@@ -402,31 +385,150 @@ document.querySelectorAll('.tab').forEach(t=>{
   });
 });
 
-/* ---------- financeiro data ---------- */
-const financeiro = {
-  maio:{
-    receita:14472.92, despesa:15221.05, lucro:-748.13, ticket:'R$ 1.206,08', clientes:12, margem:'-5%', proLabore:6500.00,
-    cats:[
-      {n:'Despesas Operacionais (equipe, ferramentas)', v:8667.46, c:'#B25D4C'},
-      {n:'Despesas Administrativas (pró-labore)', v:6500.00, c:'#B3A16C'},
-      {n:'Despesas Financeiras (taxas)', v:53.59, c:'#8A847A'},
-    ]
-  },
-  junho:{
-    receita:15304.78, despesa:14260.27, lucro:1044.51, ticket:'R$ 937,55', clientes:15, margem:'7%', proLabore:6000.00,
-    cats:[
-      {n:'Despesas Operacionais (equipe, ferramentas)', v:7679.56, c:'#B25D4C'},
-      {n:'Despesas Administrativas (pró-labore)', v:6000.00, c:'#B3A16C'},
-      {n:'Investimentos (equipamento)', v:470.08, c:'#4A4640'},
-      {n:'Despesas Comerciais (relacionamento)', v:45.00, c:'#8A847A'},
-      {n:'Despesas Financeiras (taxas)', v:65.63, c:'#D8D2C6'},
-    ]
+/* ---------- dados ao vivo (Lançamentos publicado na web) ---------- */
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTme9eqSUpIKoZK9UI7uDx-KTKZ8LVvCrQx-nd8I2TaapyQy-4kOeSulvVItVXX_cEj8jv04z6pmJAS/pub?gid=789207019&single=true&output=csv';
+const MES_ORDER = ['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
+let EXTRATO_DATA = [];
+let financeiro = {};
+
+function parseCSVGeneric(text){
+  const rows=[]; let row=[]; let field=''; let inQuotes=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(inQuotes){
+      if(c==='"'){ if(text[i+1]==='"'){field+='"';i++;} else inQuotes=false; }
+      else field+=c;
+    } else {
+      if(c==='"') inQuotes=true;
+      else if(c===','){ row.push(field); field=''; }
+      else if(c==='\n'||c==='\r'){ if(field!==''||row.length){ row.push(field); rows.push(row); row=[]; field=''; } if(c==='\r'&&text[i+1]==='\n') i++; }
+      else field+=c;
+    }
   }
-};
-function brl(v){ return 'R$ ' + v.toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+  if(field!==''||row.length){ row.push(field); rows.push(row); }
+  return rows;
+}
+function parseValorBR(s){
+  if(!s) return 0;
+  const clean = String(s).replace('R$','').trim().replace(/\./g,'').replace(',', '.');
+  const n = parseFloat(clean);
+  return isNaN(n) ? 0 : n;
+}
+const EQUIPE_RE = /SUALIS|MELGA|GABRIELA ZOLIN|ANANDA OLIVEIRA|EDINALVA AMORIM|SAL[ÁA]RIO/;
+function computeGrupo(tipo, desc){
+  const U = (desc||'').toUpperCase();
+  if(tipo==='Investimentos') return 'Investimentos';
+  if(tipo==='Despesas Comerciais') return 'Relacionamento';
+  if(tipo==='Despesas Financeiras') return 'Taxas Financeiras';
+  if(/PRO ?LABORE|PRÓ-LABORE|MARIA EDUARDA ROCHA SILVA/.test(U)) return 'Retirada (pró-labore)';
+  if(tipo==='Despesas Administrativas') return 'Retirada (pró-labore)';
+  if(tipo==='Receita Recorrente'){
+    if(/PAPELARIA/.test(U)) return 'Serviços Extras';
+    return 'Gestão (fixo)';
+  }
+  if(tipo==='Receita Variável' || tipo==='Receita Outros') return 'Serviços Extras';
+  if(tipo==='Despesas Operacionais'){
+    if(EQUIPE_RE.test(U)) return 'Equipe (salários)';
+    return 'Ferramentas & Fornecedores';
+  }
+  return 'Outros';
+}
+
+async function loadLiveData(){
+  try{
+    const res = await fetch(CSV_URL);
+    const text = await res.text();
+    const rows = parseCSVGeneric(text);
+    const out = [];
+    for(const r of rows){
+      if(!r || r.length < 8) continue;
+      const data = (r[1]||'').trim();
+      const desc = (r[2]||'').trim();
+      const mes = (r[7]||'').trim().toUpperCase();
+      if(!desc || desc==='Descrição') continue;
+      if(!MES_ORDER.includes(mes)) continue;
+      const valor = parseValorBR(r[3]);
+      const status = (r[4]||'').trim()==='Entrada' ? 'Entrada' : 'Saída';
+      const tipo = (r[5]||'').trim() || 'Outros';
+      out.push({ data, desc, valor, status, tipo, mes, grupo: computeGrupo(tipo, desc) });
+    }
+    EXTRATO_DATA = out;
+  }catch(err){
+    console.error('Falha ao buscar dados ao vivo:', err);
+    EXTRATO_DATA = [];
+  }
+  rebuildDerived();
+}
+
+function rebuildDerived(){
+  const mesesPresentes = [...new Set(EXTRATO_DATA.map(r=>r.mes))].sort((a,b)=>MES_ORDER.indexOf(a)-MES_ORDER.indexOf(b));
+
+  // financeiro por mês
+  financeiro = {};
+  mesesPresentes.forEach(mes=>{
+    const rowsMes = EXTRATO_DATA.filter(r=>r.mes===mes);
+    const receita = rowsMes.filter(r=>r.status==='Entrada').reduce((s,r)=>s+r.valor,0);
+    const despesa = rowsMes.filter(r=>r.status==='Saída').reduce((s,r)=>s+r.valor,0);
+    const lucro = receita - despesa;
+    const proLabore = rowsMes.filter(r=>r.grupo==='Retirada (pró-labore)').reduce((s,r)=>s+r.valor,0);
+    const catMap = {};
+    rowsMes.filter(r=>r.status==='Saída').forEach(r=>{ catMap[r.grupo] = (catMap[r.grupo]||0) + r.valor; });
+    const CAT_COLORS = {'Equipe (salários)':'#7A756A','Retirada (pró-labore)':'#5A5348','Ferramentas & Fornecedores':'#9C9484','Taxas Financeiras':'#8A847A','Investimentos':'#4A4640','Relacionamento':'#8F8A7E','Outros':'#B8B2A4'};
+    const cats = Object.entries(catMap).sort((a,b)=>b[1]-a[1]).map(([n,v])=>({n, v, c: CAT_COLORS[n]||'#8A847A'}));
+    const key = mes.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+    financeiro[key] = {
+      receita, despesa, lucro, proLabore, cats,
+      ticket: brl(rowsMes.filter(r=>r.grupo==='Gestão (fixo)').length ? receita/Math.max(1,new Set(rowsMes.filter(r=>r.grupo==='Gestão (fixo)').map(r=>r.desc)).size) : 0),
+      clientes: new Set(rowsMes.filter(r=>r.grupo==='Gestão (fixo)').map(r=>r.desc.replace(/.*fatura nr\.\s*\d+\s*/,''))).size,
+      margem: receita ? (lucro/receita*100).toFixed(0)+'%' : '0%',
+      _mesLabel: mes
+    };
+  });
+
+  // month toggle (financeiro)
+  const monthToggle = document.getElementById('month-toggle');
+  monthToggle.innerHTML = mesesPresentes.map((mes,i)=>{
+    const key = mes.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+    const label = mes.charAt(0)+mes.slice(1).toLowerCase();
+    return `<div class="month-btn ${i===mesesPresentes.length-1?'active':''}" data-month="${key}">${label}</div>`;
+  }).join('');
+  document.querySelectorAll('.month-btn').forEach(b=>{
+    b.addEventListener('click',()=>{
+      if(!financeiro[b.dataset.month]) return;
+      document.querySelectorAll('.month-btn').forEach(x=>x.classList.remove('active'));
+      b.classList.add('active');
+      renderFinanceiro(b.dataset.month);
+    });
+  });
+  const lastMonthKey = mesesPresentes.length ? mesesPresentes[mesesPresentes.length-1].toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'') : null;
+
+  // extrato period select
+  const extratoSelect = document.getElementById('extrato-period');
+  extratoSelect.innerHTML = '<option value="TODOS">Todos os meses</option>' +
+    mesesPresentes.map(mes=>`<option value="${mes}" ${mes===mesesPresentes[mesesPresentes.length-1]?'selected':''}>${mes.charAt(0)+mes.slice(1).toLowerCase()}</option>`).join('');
+  extratoPeriodFilter = mesesPresentes.length ? mesesPresentes[mesesPresentes.length-1] : 'TODOS';
+
+  // checklist period select
+  const checklistSelect = document.getElementById('checklist-period');
+  checklistSelect.innerHTML = mesesPresentes.map(mes=>`<option value="${mes}" ${mes===mesesPresentes[mesesPresentes.length-1]?'selected':''}>${mes.charAt(0)+mes.slice(1).toLowerCase()}</option>`).join('');
+
+  // annual months (Jan-Dez), preenchendo o que existir
+  window.ANNUAL_ROWS = MES_ORDER.map(mes=>{
+    const key = mes.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+    const d = financeiro[key];
+    return { m: mes.charAt(0)+mes.slice(1).toLowerCase(), r: d ? d.receita : null, d: d ? d.despesa : null };
+  });
+
+  if(lastMonthKey) renderFinanceiro(lastMonthKey);
+  renderAnnual();
+  renderExtrato();
+  renderChecklist();
+  renderLeads();
+}
 
 function renderFinanceiro(month){
   const d = financeiro[month];
+  if(!d) return;
   document.getElementById('k-receita').textContent = brl(d.receita);
   document.getElementById('k-despesa').textContent = brl(d.despesa);
   const lucroEl = document.getElementById('k-lucro');
@@ -439,7 +541,7 @@ function renderFinanceiro(month){
   const margemSemPL = d.receita ? (lucroSemPL/d.receita*100) : 0;
   document.getElementById('k-margem-sem').textContent = margemSemPL.toFixed(0) + '%';
 
-  const max = Math.max(...d.cats.map(c=>c.v));
+  const max = Math.max(1, ...d.cats.map(c=>c.v));
   document.getElementById('cat-list').innerHTML = d.cats.map(c=>`
     <div class="cat-row">
       <div class="cat-dot" style="background:${c.c}"></div>
@@ -449,48 +551,24 @@ function renderFinanceiro(month){
     </div>
   `).join('');
 }
-document.querySelectorAll('.month-btn').forEach(b=>{
-  b.addEventListener('click',()=>{
-    if(!financeiro[b.dataset.month]) return;
-    document.querySelectorAll('.month-btn').forEach(x=>x.classList.remove('active'));
-    b.classList.add('active');
-    renderFinanceiro(b.dataset.month);
-  });
-});
-renderFinanceiro('junho');
 
 /* ---------- visão anual ---------- */
-const ANNUAL_MONTHS = [
-  {m:'Janeiro', r:0, d:0},
-  {m:'Fevereiro', r:0, d:0},
-  {m:'Março', r:14064.00, d:11186.23},
-  {m:'Abril', r:16333.06, d:16965.17},
-  {m:'Maio', r:14472.92, d:15221.05},
-  {m:'Junho', r:15304.78, d:14260.27},
-  {m:'Julho', r:null, d:null},
-  {m:'Agosto', r:null, d:null},
-  {m:'Setembro', r:null, d:null},
-  {m:'Outubro', r:null, d:null},
-  {m:'Novembro', r:null, d:null},
-  {m:'Dezembro', r:null, d:null},
-];
-const CAIXA_SEED_FEVEREIRO = -178.69; // calibração para bater com o saldo real combinado (Asaas+Nubank)
-
 function renderAnnual(){
-  const rows = ANNUAL_MONTHS.map(mo=>({...mo}));
+  const rows = (window.ANNUAL_ROWS||[]).map(mo=>({...mo}));
   let running = 0;
+  const CAIXA_SEED_FEVEREIRO = -178.69;
   for(const row of rows){
-    if(row.r===null){ row.caixa = null; continue; }
+    if(row.r===null){ row.caixa = null; row.lucro = null; continue; }
     if(row.m==='Fevereiro'){ running = CAIXA_SEED_FEVEREIRO; row.lucro = row.r-row.d; row.caixa = running; continue; }
     row.lucro = row.r - row.d;
     running = running + row.lucro;
     row.caixa = running;
   }
-
   const totalReceita = rows.filter(r=>r.r!==null).reduce((s,r)=>s+r.r,0);
   const totalDespesa = rows.filter(r=>r.r!==null).reduce((s,r)=>s+r.d,0);
   const totalLucro = totalReceita - totalDespesa;
-  const lastCaixa = [...rows].reverse().find(r=>r.caixa!==null).caixa;
+  const caixaRows = rows.filter(r=>r.caixa!==null);
+  const lastCaixa = caixaRows.length ? caixaRows[caixaRows.length-1].caixa : 0;
 
   document.getElementById('annual-receita').textContent = brl(totalReceita);
   document.getElementById('annual-despesa').textContent = brl(totalDespesa);
@@ -531,15 +609,13 @@ function renderAnnual(){
     </div>
   `).join('');
 }
-renderAnnual();
 
 /* ---------- extrato ---------- */
-const EXTRATO_DATA = [{"data": "03/05", "desc": "Transação via Pix com QR Code para SUPERMERCADO KI-BOCADA LTDA", "valor": 34.62, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Ferramentas & Fornecedores", "mes": "MAIO"}, {"data": "03/05", "desc": "Transação via Pix com QR Code para LINAMARA GARCIA MACHADO", "valor": 38.0, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Ferramentas & Fornecedores", "mes": "MAIO"}, {"data": "04/05", "desc": "Transação via Pix com QR Code para IFOOD.COM AGENCIA DE RESTAURANTES ONLINE S.A.", "valor": 31.89, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Ferramentas & Fornecedores", "mes": "MAIO"}, {"data": "05/05", "desc": "Taxa de notificação por WhatsApp da cobrança 802336060 Elévasse Odontologia", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "05/05", "desc": "Taxa de notificação por WhatsApp da cobrança 784718820 Grazielle Barbosa lopes Parreiras", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "05/05", "desc": "Taxa de notificação por WhatsApp da cobrança 774160845 Essence Clinic", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "05/05", "desc": "Taxa de notificação por WhatsApp da cobrança 782047663 ENXOVAIS BURITI LTDA", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "05/05", "desc": "Taxa de notificação por WhatsApp da cobrança 781686732 Larissa França Gonçalves", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "05/05", "desc": "Taxa de notificação por WhatsApp da cobrança 774084589 Larissa Odete da Silva Barbosa", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "05/05", "desc": "Cobrança recebida - fatura nr. 774084589 Larissa Odete da Silva Barbosa", "valor": 1275.0, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "MAIO"}, {"data": "05/05", "desc": "Taxa do Pix - fatura nr. 774084589 Larissa Odete da Silva Barbosa", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "05/05", "desc": "Taxa de mensageria - fatura nr. 774084589 Larissa Odete da Silva Barbosa", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "05/05", "desc": "Transação via Pix com QR Code para ENXOVAIS BURITI LTDA", "valor": 37.9, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Ferramentas & Fornecedores", "mes": "MAIO"}, {"data": "05/05", "desc": "Taxa de notificação por WhatsApp da cobrança 802332606 Elévasse Odontologia", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "05/05", "desc": "Taxa de notificação por WhatsApp da cobrança 774084589 Larissa Odete da Silva Barbosa", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "05/05", "desc": "Cobrança recebida - fatura nr. 802332606 Elévasse Odontologia", "valor": 1299.0, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "MAIO"}, {"data": "05/05", "desc": "Taxa de boleto - fatura nr. 802332606 Elévasse Odontologia", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "05/05", "desc": "Taxa de mensageria - fatura nr. 802332606 Elévasse Odontologia", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "05/05", "desc": "Taxa de notificação por WhatsApp da cobrança 781686732 Larissa França Gonçalves", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "05/05", "desc": "Transação via Pix com QR Code para Lucas Gabriel Campos Serafim", "valor": 30.0, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Ferramentas & Fornecedores", "mes": "MAIO"}, {"data": "05/05", "desc": "Transação via Pix com chave para MARIA EDUARDA ROCHA SILVA", "valor": 2000.0, "status": "Saída", "tipo": "Despesas Administrativas", "grupo": "Retirada (pró-labore)", "mes": "MAIO"}, {"data": "05/05", "desc": "Cobrança recebida - fatura nr. 781686732 Larissa França Gonçalves", "valor": 1297.0, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "MAIO"}, {"data": "05/05", "desc": "Taxa do Pix - fatura nr. 781686732 Larissa França Gonçalves", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "05/05", "desc": "Taxa de mensageria - fatura nr. 781686732 Larissa França Gonçalves", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "05/05", "desc": "Taxa de notificação por WhatsApp da cobrança 781686732 Larissa França Gonçalves", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "06/05", "desc": "Cobrança recebida - fatura nr. 802803509 Isabela Ferreira Santos", "valor": 1075.1, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "MAIO"}, {"data": "06/05", "desc": "Taxa de boleto - fatura nr. 802803509 Isabela Ferreira Santos", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "06/05", "desc": "Taxa de mensageria - fatura nr. 802803509 Isabela Ferreira Santos", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "06/05", "desc": "Taxa de notificação por WhatsApp da cobrança 774160845 Essence Clinic", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "06/05", "desc": "Cobrança recebida - fatura nr. 774160845 Essence Clinic", "valor": 1617.51, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "MAIO"}, {"data": "06/05", "desc": "Taxa do Pix - fatura nr. 774160845 Essence Clinic", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "06/05", "desc": "Taxa de mensageria - fatura nr. 774160845 Essence Clinic", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "06/05", "desc": "Taxa de notificação por WhatsApp da cobrança 802336060 Elévasse Odontologia", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "07/05", "desc": "Taxa de notificação por WhatsApp da cobrança 802336060 Elévasse Odontologia", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "08/05", "desc": "Taxa de notificação por WhatsApp da cobrança 802336060 Elévasse Odontologia", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "08/05", "desc": "Taxa de notificação por WhatsApp da cobrança 785629801 Lara Salgado Capanema", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "08/05", "desc": "Taxa de notificação por WhatsApp da cobrança 784718820 Grazielle Barbosa lopes Parreiras", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "11/05", "desc": "Cobrança recebida - fatura nr. 802336060 Elévasse Odontologia", "valor": 748.31, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "MAIO"}, {"data": "11/05", "desc": "Taxa de boleto - fatura nr. 802336060 Elévasse Odontologia", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "11/05", "desc": "Taxa de mensageria - fatura nr. 802336060 Elévasse Odontologia", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "11/05", "desc": "Transação via Pix com chave para MARIA EDUARDA ROCHA SILVA", "valor": 3000.0, "status": "Saída", "tipo": "Despesas Administrativas", "grupo": "Retirada (pró-labore)", "mes": "MAIO"}, {"data": "11/05", "desc": "Transação via Pix com chave para Brenda Marques da Costa", "valor": 26.7, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Ferramentas & Fornecedores", "mes": "MAIO"}, {"data": "11/05", "desc": "Cobrança recebida - fatura nr. 785629801 Lara Salgado Capanema", "valor": 848.0, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "MAIO"}, {"data": "11/05", "desc": "Taxa de boleto - fatura nr. 785629801 Lara Salgado Capanema", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "11/05", "desc": "Taxa de mensageria - fatura nr. 785629801 Lara Salgado Capanema", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "11/05", "desc": "Taxa de notificação por WhatsApp da cobrança 784718820 Grazielle Barbosa lopes Parreiras", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "12/05", "desc": "Cobrança recebida - fatura nr. 784718820 Grazielle Barbosa lopes Parreiras", "valor": 616.0, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "MAIO"}, {"data": "12/05", "desc": "Taxa de boleto - fatura nr. 784718820 Grazielle Barbosa lopes Parreiras", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "12/05", "desc": "Taxa de mensageria - fatura nr. 784718820 Grazielle Barbosa lopes Parreiras", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "12/05", "desc": "Transação via Pix com QR Code para COOPERATIVA AGRO PECUARIA DE POMPEU LTDA", "valor": 50.0, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Ferramentas & Fornecedores", "mes": "MAIO"}, {"data": "15/05", "desc": "Taxa de notificação por WhatsApp da cobrança 782047663 ENXOVAIS BURITI LTDA", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "15/05", "desc": "Cobrança recebida - fatura nr. 782047663 ENXOVAIS BURITI LTDA", "valor": 1417.0, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "MAIO"}, {"data": "15/05", "desc": "Taxa de boleto - fatura nr. 782047663 ENXOVAIS BURITI LTDA", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "15/05", "desc": "Taxa de mensageria - fatura nr. 782047663 ENXOVAIS BURITI LTDA", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "15/05", "desc": "Transação via Pix com chave para SUALIS MARTINS DO NASCIMENTO", "valor": 1650.0, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Equipe (salários)", "mes": "MAIO"}, {"data": "18/05", "desc": "Transação via Pix com chave para 28 481 378 LARISSA ODETE DA SILVA BARBOSA", "valor": 39.0, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Ferramentas & Fornecedores", "mes": "MAIO"}, {"data": "18/05", "desc": "Transação via Pix com QR Code para IFOOD.COM AGENCIA DE RESTAURANTES ONLINE S.A.", "valor": 83.45, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Ferramentas & Fornecedores", "mes": "MAIO"}, {"data": "19/05", "desc": "Cobrança recebida - fatura nr. 785926329 CENTRO ODONTOLÓGICO VOLTE A SORRIR", "valor": 1567.0, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "MAIO"}, {"data": "19/05", "desc": "Taxa do Pix - fatura nr. 785926329 CENTRO ODONTOLÓGICO VOLTE A SORRIR", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "19/05", "desc": "Taxa de mensageria - fatura nr. 785926329 CENTRO ODONTOLÓGICO VOLTE A SORRIR", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "20/05", "desc": "Taxa de notificação por WhatsApp da cobrança 813636189 Uyara Colen", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "20/05", "desc": "Taxa de notificação por WhatsApp da cobrança 789388463 Grazielle Barbosa lopes Parreiras", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "20/05", "desc": "Cobrança recebida - fatura nr. 813636189 Uyara Colen", "valor": 987.0, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "MAIO"}, {"data": "20/05", "desc": "Taxa do Pix - fatura nr. 813636189 Uyara Colen", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "20/05", "desc": "Taxa de mensageria - fatura nr. 813636189 Uyara Colen", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "20/05", "desc": "Transação via Pix com chave para Ananda Oliveira dos Santos Silva", "valor": 2730.0, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Equipe (salários)", "mes": "MAIO"}, {"data": "21/05", "desc": "Cobrança recebida - fatura nr. 785924876 Wanessa Giselle Valadares e Silva", "valor": 860.0, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "MAIO"}, {"data": "21/05", "desc": "Taxa de boleto - fatura nr. 785924876 Wanessa Giselle Valadares e Silva", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "21/05", "desc": "Taxa de mensageria - fatura nr. 785924876 Wanessa Giselle Valadares e Silva", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "23/05", "desc": "Transação via Pix com QR Code para 48 649 195 VITORIA LUIZA SILVA BARBOSA", "valor": 120.0, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Ferramentas & Fornecedores", "mes": "MAIO"}, {"data": "23/05", "desc": "Transação via Pix com chave para DANYELE GONCALVES MELGACO", "valor": 885.5, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Equipe (salários)", "mes": "MAIO"}, {"data": "23/05", "desc": "Transação via Pix com chave para 45 066 442 GABRIELA ZOLIN WIGGERS", "valor": 359.0, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Equipe (salários)", "mes": "MAIO"}, {"data": "24/05", "desc": "Transação via Pix com QR Code para NU PAGAMENTOS S/A", "valor": 1000.0, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Ferramentas & Fornecedores", "mes": "MAIO"}, {"data": "24/05", "desc": "Transação via Pix com chave para MARIA EDUARDA ROCHA SILVA", "valor": 1000.0, "status": "Saída", "tipo": "Despesas Administrativas", "grupo": "Retirada (pró-labore)", "mes": "MAIO"}, {"data": "25/05", "desc": "Transferência recebida pelo Pix - CHOCOLARI DOCERIA LTDA (cobertura evento)", "valor": 250.0, "status": "Entrada", "tipo": "Receita Variável", "grupo": "Serviços Extras", "mes": "MAIO"}, {"data": "25/05", "desc": "Transação via Pix com chave para 56.524.947 EDINALVA AMORIM GOMES", "valor": 1360.0, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Equipe (salários)", "mes": "MAIO"}, {"data": "25/05", "desc": "Transação via Pix com chave para JULIANA MARTINS CAKE DESIGNER LTDA", "valor": 88.0, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Ferramentas & Fornecedores", "mes": "MAIO"}, {"data": "25/05", "desc": "Taxa de notificação por WhatsApp da cobrança 789388463 Grazielle Barbosa lopes Parreiras", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "25/05", "desc": "Cobrança recebida - fatura nr. 789388463 Grazielle Barbosa lopes Parreiras", "valor": 616.0, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "MAIO"}, {"data": "25/05", "desc": "Taxa do Pix - fatura nr. 789388463 Grazielle Barbosa lopes Parreiras", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "25/05", "desc": "Taxa de mensageria - fatura nr. 789388463 Grazielle Barbosa lopes Parreiras", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "25/05", "desc": "Taxa de notificação por WhatsApp da cobrança 789388463 Grazielle Barbosa lopes Parreiras", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "26/05", "desc": "Taxa de notificação por WhatsApp da cobrança 796232575 Larissa Odete da Silva Barbosa", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "27/05", "desc": "Transação via Pix com chave para MARIA EDUARDA ROCHA SILVA", "valor": 500.0, "status": "Saída", "tipo": "Despesas Administrativas", "grupo": "Retirada (pró-labore)", "mes": "MAIO"}, {"data": "29/05", "desc": "Taxa de notificação por WhatsApp da cobrança 796305614 Essence Clinic", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "29/05", "desc": "Taxa de notificação por WhatsApp da cobrança 796329143 Larissa França Gonçalves", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "29/05", "desc": "Taxa de notificação por WhatsApp da cobrança 802578137 Elévasse Odontologia", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "29/05", "desc": "Taxa de notificação por WhatsApp da cobrança 801212114 Lara Salgado Capanema", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "MAIO"}, {"data": "30/05", "desc": "Débito em conta - Assinatura Mlabs", "valor": 103.4, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Ferramentas & Fornecedores", "mes": "MAIO"}, {"data": "02/06", "desc": "Cobrança recebida - fatura nr. 796305614 Essence Clinic", "valor": 1540.0, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "JUNHO"}, {"data": "02/06", "desc": "Taxa do Pix - fatura nr. 796305614 Essence Clinic", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "02/06", "desc": "Taxa de mensageria - fatura nr. 796305614 Essence Clinic", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "03/06", "desc": "Transferência enviada pelo Pix - ALEXEI AFONSO DE CAMPOS (conserto notebook)", "valor": 45.0, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Ferramentas & Fornecedores", "mes": "JUNHO"}, {"data": "04/06", "desc": "Transação via Pix com chave para MARIA EDUARDA ROCHA SILVA", "valor": 1000.0, "status": "Saída", "tipo": "Despesas Administrativas", "grupo": "Retirada (pró-labore)", "mes": "JUNHO"}, {"data": "05/06", "desc": "Taxa de notificação por WhatsApp da cobrança 796232575 Larissa Odete da Silva Barbosa", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "05/06", "desc": "Taxa de notificação por WhatsApp da cobrança 802578137 Elévasse Odontologia", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "05/06", "desc": "Taxa de notificação por WhatsApp da cobrança 801208484 Grazielle Barbosa lopes Parreiras", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "05/06", "desc": "Cobrança recebida - fatura nr. 796232575 Larissa Odete da Silva Barbosa", "valor": 1275.0, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "JUNHO"}, {"data": "05/06", "desc": "Taxa do Pix - fatura nr. 796232575 Larissa Odete da Silva Barbosa", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "05/06", "desc": "Taxa de mensageria - fatura nr. 796232575 Larissa Odete da Silva Barbosa", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "05/06", "desc": "Taxa de notificação por WhatsApp da cobrança 796232575 Larissa Odete da Silva Barbosa", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "05/06", "desc": "Taxa de notificação por WhatsApp da cobrança 804778651 ENXOVAIS BURITI LTDA", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "05/06", "desc": "Taxa de notificação por WhatsApp da cobrança 796329143 Larissa França Gonçalves", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "05/06", "desc": "Cobrança recebida - fatura nr. 802578137 Elévasse Odontologia", "valor": 1299.0, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "JUNHO"}, {"data": "05/06", "desc": "Taxa de boleto - fatura nr. 802578137 Elévasse Odontologia", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "05/06", "desc": "Taxa de mensageria - fatura nr. 802578137 Elévasse Odontologia", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "05/06", "desc": "Cobrança recebida - fatura nr. 796329143 Larissa França Gonçalves", "valor": 1297.0, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "JUNHO"}, {"data": "05/06", "desc": "Taxa do Pix - fatura nr. 796329143 Larissa França Gonçalves", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "05/06", "desc": "Taxa de mensageria - fatura nr. 796329143 Larissa França Gonçalves", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "05/06", "desc": "Taxa de notificação por WhatsApp da cobrança 796329143 Larissa França Gonçalves", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "08/06", "desc": "Transferência enviada pelo Pix - Cristiana Pereira da Silva (mimo cliente)", "valor": 45.0, "status": "Saída", "tipo": "Despesas Comerciais", "grupo": "Relacionamento", "mes": "JUNHO"}, {"data": "08/06", "desc": "Transferência enviada pelo Pix - CHOCOLARI DOCERIA LTDA (lanche equipe evento)", "valor": 36.0, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Ferramentas & Fornecedores", "mes": "JUNHO"}, {"data": "08/06", "desc": "Taxa de notificação por WhatsApp da cobrança 826084153 Isabela Ferreira Santos", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "09/06", "desc": "Taxa de notificação por WhatsApp da cobrança 826084153 Isabela Ferreira Santos", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "09/06", "desc": "Cobrança recebida - fatura nr. 830475279 Isabela", "valor": 1069.67, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "JUNHO"}, {"data": "10/06", "desc": "Taxa de notificação por WhatsApp da cobrança 801208484 Grazielle Barbosa lopes Parreiras", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "10/06", "desc": "Transação via Pix com chave para Brenda Marques da Costa", "valor": 26.7, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Ferramentas & Fornecedores", "mes": "JUNHO"}, {"data": "10/06", "desc": "Taxa de notificação por WhatsApp da cobrança 801212114 Lara Salgado Capanema", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "10/06", "desc": "Cobrança recebida - fatura nr. 801212114 Lara Salgado Capanema", "valor": 848.0, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "JUNHO"}, {"data": "10/06", "desc": "Taxa de boleto - fatura nr. 801212114 Lara Salgado Capanema", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "10/06", "desc": "Taxa de mensageria - fatura nr. 801212114 Lara Salgado Capanema", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "10/06", "desc": "Transação via Pix com chave para MARIA EDUARDA ROCHA SILVA", "valor": 2000.0, "status": "Saída", "tipo": "Despesas Administrativas", "grupo": "Retirada (pró-labore)", "mes": "JUNHO"}, {"data": "10/06", "desc": "Cobrança recebida - fatura nr. 801208484 Grazielle Barbosa lopes Parreiras", "valor": 616.0, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "JUNHO"}, {"data": "10/06", "desc": "Taxa do Pix - fatura nr. 801208484 Grazielle Barbosa lopes Parreiras", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "10/06", "desc": "Taxa de mensageria - fatura nr. 801208484 Grazielle Barbosa lopes Parreiras", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "10/06", "desc": "Taxa de notificação por WhatsApp da cobrança 801208484 Grazielle Barbosa lopes Parreiras", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "12/06", "desc": "Antecipação - fatura nr. 832929591 Grazielle B L PARREI (papelaria)", "valor": 134.8, "status": "Entrada", "tipo": "Receita Variável", "grupo": "Serviços Extras", "mes": "JUNHO"}, {"data": "12/06", "desc": "Taxa de cartão - fatura nr. 832929591 Grazielle B L PARREI", "valor": 4.94, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "12/06", "desc": "Taxa de antecipação - fatura nr. 832929591 Grazielle B L PARREI", "valor": 4.57, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "12/06", "desc": "Antecipação - fatura nr. 832929583 Grazielle B L PARREI (papelaria)", "valor": 134.8, "status": "Entrada", "tipo": "Receita Variável", "grupo": "Serviços Extras", "mes": "JUNHO"}, {"data": "12/06", "desc": "Taxa de cartão - fatura nr. 832929583 Grazielle B L PARREI", "valor": 4.94, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "12/06", "desc": "Taxa de antecipação - fatura nr. 832929583 Grazielle B L PARREI", "valor": 2.22, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "12/06", "desc": "Transação via Pix com chave para MARIA EDUARDA ROCHA SILVA", "valor": 2000.0, "status": "Saída", "tipo": "Despesas Administrativas", "grupo": "Retirada (pró-labore)", "mes": "JUNHO"}, {"data": "15/06", "desc": "Taxa de notificação por WhatsApp da cobrança 804778651 ENXOVAIS BURITI LTDA", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "15/06", "desc": "Cobrança recebida - fatura nr. 804778651 ENXOVAIS BURITI LTDA", "valor": 1417.0, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "JUNHO"}, {"data": "15/06", "desc": "Taxa de boleto - fatura nr. 804778651 ENXOVAIS BURITI LTDA", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "15/06", "desc": "Taxa de mensageria - fatura nr. 804778651 ENXOVAIS BURITI LTDA", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "15/06", "desc": "Transação via Pix com chave para SUALIS MARTINS DO NASCIMENTO", "valor": 1650.0, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Equipe (salários)", "mes": "JUNHO"}, {"data": "17/06", "desc": "Cobrança recebida - fatura nr. 836406196 Chocolari Doceria Ltda", "valor": 250.0, "status": "Entrada", "tipo": "Receita Variável", "grupo": "Serviços Extras", "mes": "JUNHO"}, {"data": "19/06", "desc": "Transferência enviada pelo Pix - Utilidades Zh (papelaria)", "valor": 6.0, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Ferramentas & Fornecedores", "mes": "JUNHO"}, {"data": "19/06", "desc": "Taxa de notificação por WhatsApp da cobrança 836507265 Elévasse Odontologia", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "19/06", "desc": "Taxa de notificação por WhatsApp da cobrança 812315060 Grazielle Barbosa lopes Parreiras", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "19/06", "desc": "Transação efetuada com o cartão Cartão Asaas Agência (Final 1340)", "valor": 24.98, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Ferramentas & Fornecedores", "mes": "JUNHO"}, {"data": "19/06", "desc": "Taxa de notificação por WhatsApp da cobrança 808540376 CENTRO ODONTOLÓGICO VOLTE A SORRIR", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "19/06", "desc": "Cobrança recebida - fatura nr. 836507265 Elévasse Odontologia (cobertura de stories, fora do contrato)", "valor": 622.0, "status": "Entrada", "tipo": "Receita Variável", "grupo": "Serviços Extras", "mes": "JUNHO"}, {"data": "19/06", "desc": "Taxa de boleto - fatura nr. 836507265 Elévasse Odontologia", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "19/06", "desc": "Taxa de mensageria - fatura nr. 836507265 Elévasse Odontologia", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "19/06", "desc": "Transação via Pix com QR Code para PANIFICADORA BOA SORTE LTDA", "valor": 12.95, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Ferramentas & Fornecedores", "mes": "JUNHO"}, {"data": "19/06", "desc": "Transação via Pix com chave para DANYELE GONCALVES MELGACO", "valor": 75.0, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Equipe (salários)", "mes": "JUNHO"}, {"data": "19/06", "desc": "Transação via Pix com chave para SUALIS MARTINS DO NASCIMENTO", "valor": 75.0, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Equipe (salários)", "mes": "JUNHO"}, {"data": "22/06", "desc": "Transferência recebida pelo Pix - MINIMIZ (venda avulsa papelaria)", "valor": 740.05, "status": "Entrada", "tipo": "Receita Variável", "grupo": "Serviços Extras", "mes": "JUNHO"}, {"data": "22/06", "desc": "Cobrança recebida - fatura nr. 808540376 CENTRO ODONTOLÓGICO VOLTE A SORRIR", "valor": 1567.0, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "JUNHO"}, {"data": "22/06", "desc": "Taxa de boleto - fatura nr. 808540376 CENTRO ODONTOLÓGICO VOLTE A SORRIR", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "22/06", "desc": "Taxa de mensageria - fatura nr. 808540376 CENTRO ODONTOLÓGICO VOLTE A SORRIR", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "22/06", "desc": "Transação via Pix com chave para DANYELE GONCALVES MELGACO", "valor": 810.5, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Equipe (salários)", "mes": "JUNHO"}, {"data": "22/06", "desc": "Transação via Pix com chave para 61.566.819 ANANDA OLIVEIRA DOS SANTOS SILVA", "valor": 2400.0, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Equipe (salários)", "mes": "JUNHO"}, {"data": "22/06", "desc": "Cobrança recebida - fatura nr. 839505125 Wanessa Giselle Valadares e Silva", "valor": 640.0, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "JUNHO"}, {"data": "22/06", "desc": "Taxa de boleto - fatura nr. 839505125 Wanessa Giselle Valadares e Silva", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "22/06", "desc": "Taxa de mensageria - fatura nr. 839505125 Wanessa Giselle Valadares e Silva", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "23/06", "desc": "Cobrança recebida - fatura nr. 840312569 Uyara Colen", "valor": 987.0, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "JUNHO"}, {"data": "23/06", "desc": "Taxa do Pix - fatura nr. 840312569 Uyara Colen", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "23/06", "desc": "Taxa de mensageria - fatura nr. 840312569 Uyara Colen", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "23/06", "desc": "Transação via Pix com chave para MARIA EDUARDA ROCHA SILVA", "valor": 1000.0, "status": "Saída", "tipo": "Despesas Administrativas", "grupo": "Retirada (pró-labore)", "mes": "JUNHO"}, {"data": "25/06", "desc": "Taxa de notificação por WhatsApp da cobrança 812315060 Grazielle Barbosa lopes Parreiras", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "25/06", "desc": "Taxa de notificação por WhatsApp da cobrança 819271105 Larissa Odete da Silva Barbosa", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "25/06", "desc": "Transação via Pix com chave para 56.524.947 EDINALVA AMORIM GOMES", "valor": 1320.0, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Equipe (salários)", "mes": "JUNHO"}, {"data": "25/06", "desc": "Cobrança recebida - fatura nr. 812315060 Grazielle Barbosa lopes Parreiras", "valor": 616.0, "status": "Entrada", "tipo": "Receita Recorrente", "grupo": "Gestão (fixo)", "mes": "JUNHO"}, {"data": "25/06", "desc": "Taxa do Pix - fatura nr. 812315060 Grazielle Barbosa lopes Parreiras", "valor": 1.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "25/06", "desc": "Taxa de mensageria - fatura nr. 812315060 Grazielle Barbosa lopes Parreiras", "valor": 0.99, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "25/06", "desc": "Taxa de notificação por WhatsApp da cobrança 812315060 Grazielle Barbosa lopes Parreiras", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "26/06", "desc": "Transferência recebida pelo Pix - ISABELA CRISTINA FERREIRA SANTOS (venda avulsa)", "valor": 251.46, "status": "Entrada", "tipo": "Receita Variável", "grupo": "Serviços Extras", "mes": "JUNHO"}, {"data": "26/06", "desc": "Pagamento de fatura - cartão Nubank da agência", "valor": 867.03, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Ferramentas & Fornecedores", "mes": "JUNHO"}, {"data": "26/06", "desc": "Transação via Pix com chave para 45.066.442 GABRIELA ZOLIN WIGGERS", "valor": 227.0, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Equipe (salários)", "mes": "JUNHO"}, {"data": "26/06", "desc": "Transação via Pix com chave para MARIA EDUARDA ROCHA SILVA", "valor": 470.08, "status": "Saída", "tipo": "Investimentos", "grupo": "Investimentos", "mes": "JUNHO"}, {"data": "30/06", "desc": "Débito em conta - Assinatura Mlabs", "valor": 103.4, "status": "Saída", "tipo": "Despesas Operacionais", "grupo": "Ferramentas & Fornecedores", "mes": "JUNHO"}, {"data": "30/06", "desc": "Taxa de notificação por WhatsApp da cobrança 819329387 Essence Clinic", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "30/06", "desc": "Taxa de notificação por WhatsApp da cobrança 819370279 Elévasse Odontologia", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "30/06", "desc": "Taxa de notificação por WhatsApp da cobrança 819357863 Larissa França Gonçalves", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "30/06", "desc": "Taxa de notificação por WhatsApp da cobrança 826236210 Isabela Ferreira Santos", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}, {"data": "30/06", "desc": "Taxa de notificação por WhatsApp da cobrança 824383240 Lara Salgado Capanema", "valor": 0.55, "status": "Saída", "tipo": "Despesas Financeiras", "grupo": "Taxas Financeiras", "mes": "JUNHO"}];
 const GRUPO_COLORS = {
   'Gestão (fixo)':'#33302A', 'Serviços Extras':'#B3A16C',
   'Equipe (salários)':'#7A756A', 'Ferramentas & Fornecedores':'#9C9484',
   'Taxas Financeiras':'#8A847A', 'Retirada (pró-labore)':'#5A5348',
-  'Relacionamento':'#8F8A7E', 'Investimentos':'#4A4640'
+  'Relacionamento':'#8F8A7E', 'Investimentos':'#4A4640', 'Outros':'#B8B2A4'
 };
 function txnId(r){ return r.data+'|'+r.desc; }
 const DEFAULT_TAGS = [
@@ -583,7 +659,7 @@ function renderServicosExtrasBreakdown(rows){
     `).join('');
 }
 let extratoGrupoFilter = 'TODOS';
-let extratoPeriodFilter = 'JUNHO';
+let extratoPeriodFilter = 'TODOS';
 
 function renderExtratoChips(){
   const grupos = ['TODOS', ...new Set(EXTRATO_DATA.map(r=>r.grupo))];
@@ -628,7 +704,6 @@ function renderExtrato(){
 document.getElementById('extrato-period').addEventListener('change',(e)=>{
   extratoPeriodFilter = e.target.value; renderExtrato();
 });
-renderExtrato();
 
 /* ---------- checklist ---------- */
 const CHECKLIST_ENTRADAS = [
@@ -690,7 +765,9 @@ function renderDonut(canvasId, paidSum, pendingSum, existingChartVar){
   });
 }
 function renderChecklist(){
-  const period = document.getElementById('checklist-period').value;
+  const sel = document.getElementById('checklist-period');
+  if(!sel.value) return;
+  const period = sel.value;
   const map = loadChecklist();
   const valuesMap = loadChecklistValues();
 
@@ -724,7 +801,8 @@ function renderChecklist(){
   renderList(CHECKLIST_SAIDAS, 'Equipe (salários)', 'check-out-list', 'check-out-summary', 'chart-out', 'out');
 }
 document.getElementById('checklist-period').addEventListener('change', renderChecklist);
-renderChecklist();
+
+loadLiveData();
 
 /* ---------- contratos ---------- */
 const contratos = [
@@ -750,7 +828,7 @@ document.getElementById('contracts-list').innerHTML = contratos.map(c=>`
 
 /* ---------- leads ---------- */
 let leads = [
-  {id:'lead-1', nome:'Amanda Ribeiro de Sousa', marca:'Nutri Performance', area:'Loja de Suplementos', tempo:'começando agora', precisa:['Identidade Visual','Design de Posts'], cidade:'Pompéu', insta:'@nutriperformance14', whats:'37998120074', porte:'MEI', origem:'Instagram', horario:'Entre 09h às 12h', periodo:'JUNHO'}
+  {id:'lead-1', nome:'Amanda Ribeiro de Sousa', marca:'Nutri Performance', area:'Loja de Suplementos', tempo:'começando agora', precisa:['Identidade Visual','Design de Posts'], cidade:'Pompéu', insta:'@nutriperformance14', whats:'37998120074', porte:'MEI', origem:'Instagram', horario:'Entre 09h às 12h', periodo:'JUNHO', dataSolicitacao:'15/06/2026'}
 ];
 
 const STATUS_LABELS = {novo:'Não contatado', contatado:'Contatado', fechou:'Fechou', perdeu:'Não fechou'};
@@ -833,8 +911,8 @@ function renderLeads(){
         </div>
         <span class="lead-status-badge ${st}">${STATUS_LABELS[st]}</span>
       </div>
-      <div class="lead-tags">${l.precisa.map(p=>`<span class="tag">${p}</span>`).join('')}<span class="tag">${l.cidade}</span><span class="tag">${l.porte}</span></div>
-      <a class="wa-link" href="https://wa.me/55${l.whats}" target="_blank" onclick="event.stopPropagation()">↗ WhatsApp (${l.whats})</a>
+      <div class="lead-tags">${l.precisa.map(p=>`<span class="tag">${p}</span>`).join('')}<span class="tag">${l.cidade}</span><span class="tag">${l.porte}</span>${l.dataSolicitacao?`<span class="tag">Solicitado em ${l.dataSolicitacao}</span>`:''}</div>
+      <a class="wa-link" href="https://wa.me/55${l.whats}?text=${encodeURIComponent(buildMessage(l))}" target="_blank" onclick="event.stopPropagation()">↗ Enviar mensagem no WhatsApp (${l.whats})</a>
     </div>
   `;}).join('');
 }
@@ -845,10 +923,11 @@ function openLead(id){
   document.getElementById('modal-name').textContent = l.nome;
   document.getElementById('modal-brand').textContent = l.marca + ' · ' + l.area;
   document.getElementById('modal-fields').innerHTML = `
+    <div class="field-row"><b>Data da solicitação</b><span>${l.dataSolicitacao||'—'}</span></div>
     <div class="field-row"><b>Tempo de negócio</b><span>${l.tempo}</span></div>
     <div class="field-row"><b>Precisa de</b><span>${l.precisa.join(', ')}</span></div>
     <div class="field-row"><b>Cidade</b><span>${l.cidade}</span></div>
-    <div class="field-row"><b>Instagram</b><span>${l.insta}</span></div>
+    <div class="field-row"><b>Instagram</b><span><a href="https://instagram.com/${l.insta.replace('@','').trim()}" target="_blank" style="color:var(--near-black);font-weight:600;">${l.insta} ↗</a></span></div>
     <div class="field-row"><b>Porte</b><span>${l.porte}</span></div>
     <div class="field-row"><b>Origem</b><span>${l.origem}</span></div>
     <div class="field-row"><b>Melhor horário</b><span>${l.horario}</span></div>
@@ -905,7 +984,7 @@ document.getElementById('csv-input').addEventListener('change',(e)=>{
     const iNome = idx('nome'); const iMarca = idx('marca'); const iArea = idx('atuação');
     const iTempo = idx('tempo'); const iPrecisa = idx('precisa'); const iCidade = idx('cidade');
     const iInsta = idx('instagram'); const iWhats = idx('whatsapp'); const iPorte = idx('porte');
-    const iOrigem = idx('conheceu'); const iHorario = idx('horário');
+    const iOrigem = idx('conheceu'); const iHorario = idx('horário'); const iData = idx('carimbo')>=0?idx('carimbo'):idx('data/hora');
     const mesesPt = ['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
     const periodoAtual = mesesPt[new Date().getMonth()];
     const parsed = rows.slice(1).filter(r=>r.length>1).map((r,idx)=>({
@@ -913,7 +992,7 @@ document.getElementById('csv-input').addEventListener('change',(e)=>{
       nome: r[iNome]||'Sem nome', marca: r[iMarca]||'—', area: r[iArea]||'—',
       tempo: r[iTempo]||'', precisa: (r[iPrecisa]||'').split(';').map(s=>s.trim()).filter(Boolean),
       cidade: r[iCidade]||'', insta: r[iInsta]||'', whats:(r[iWhats]||'').replace(/\D/g,''),
-      porte: r[iPorte]||'', origem: r[iOrigem]||'', horario: r[iHorario]||'', periodo: periodoAtual
+      porte: r[iPorte]||'', origem: r[iOrigem]||'', horario: r[iHorario]||'', periodo: periodoAtual, dataSolicitacao: (iData>=0?r[iData]:'')||''
     }));
     if(parsed.length){ leads = parsed; renderLeads(); }
   };
