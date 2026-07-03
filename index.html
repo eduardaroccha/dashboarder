@@ -133,6 +133,12 @@
   .status-btn-row{ display:flex; gap:8px; margin-top:16px; flex-wrap:wrap; }
   .status-btn{ flex:1; min-width:100px; padding:9px; border-radius:9px; border:1px solid var(--line); background:var(--white); font-size:11.5px; font-weight:600; cursor:pointer; color:var(--gray-700); }
   .status-btn.sel{ background:var(--near-black); color:var(--off-white); border-color:var(--near-black); }
+  .notes-block{ margin-top:16px; }
+  .notes-label{ display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--gray-500); margin-bottom:6px; font-weight:700; }
+  .notes-textarea{ width:100%; min-height:70px; font-family:'Montserrat',sans-serif; font-size:13px; border:1px solid var(--line); border-radius:10px; padding:10px 12px; background:var(--off-white); color:var(--near-black); resize:vertical; }
+  .notes-textarea:focus{ outline:none; border-color:var(--gold-1); background:var(--white); }
+  .notes-saved{ font-size:11px; color:var(--gray-500); margin-top:4px; height:14px; }
+  .lead-note-preview{ font-size:11.5px; color:var(--gray-500); margin-top:8px; font-style:italic; }
 
   /* annual */
   .annual-table{ width:100%; border-collapse:collapse; font-size:12.5px; margin-top:14px; }
@@ -348,8 +354,6 @@
     <div class="filter-row">
       <select class="select-period" id="lead-period">
         <option value="TODOS">Todos os períodos</option>
-        <option value="JUNHO" selected>Junho 2026</option>
-        <option value="JULHO">Julho 2026</option>
       </select>
     </div>
     <div class="filter-row" id="lead-status-chips"></div>
@@ -366,6 +370,11 @@
     <div class="sub" id="modal-brand">Marca</div>
     <div id="modal-fields"></div>
     <div class="status-btn-row" id="modal-status-row"></div>
+    <div class="notes-block">
+      <label class="notes-label" for="modal-notes">Observações</label>
+      <textarea id="modal-notes" class="notes-textarea" placeholder="Ex: entrei em contato dia 10, disse que vai decidir semana que vem..."></textarea>
+      <div class="notes-saved" id="notes-saved-hint"></div>
+    </div>
     <div class="msg-box" id="modal-message"></div>
     <div class="btn-row">
       <button class="btn primary" id="modal-copy">Copiar mensagem</button>
@@ -829,10 +838,27 @@ document.getElementById('contracts-list').innerHTML = contratos.map(c=>`
 
 /* ---------- leads ---------- */
 let leads = [
-  {id:'lead-1', nome:'Amanda Ribeiro de Sousa', marca:'Nutri Performance', area:'Loja de Suplementos', tempo:'começando agora', precisa:['Identidade Visual','Design de Posts'], cidade:'Pompéu', insta:'@nutriperformance14', whats:'37998120074', porte:'MEI', origem:'Instagram', horario:'Entre 09h às 12h', periodo:'JUNHO', dataSolicitacao:'15/06/2026'}
+  {id:'lead-1', nome:'Amanda Ribeiro de Sousa', marca:'Nutri Performance', area:'Loja de Suplementos', tempo:'começando agora', precisa:['Identidade Visual','Design de Posts'], cidade:'Pompéu', insta:'@nutriperformance14', whats:'37998120074', porte:'MEI', origem:'Instagram', horario:'Entre 09h às 12h', periodo:'JUNHO/2026', dataSolicitacao:'15/06/2026'}
 ];
+const MESES_PT = ['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
+function periodoLabel(p){
+  const [mes,ano] = p.split('/');
+  return mes ? (mes.charAt(0)+mes.slice(1).toLowerCase()+(ano?'/'+ano:'')) : p;
+}
+function periodoSortKey(p){
+  const [mes,ano] = p.split('/');
+  return (parseInt(ano,10)||0)*100 + (MESES_PT.indexOf(mes)+1);
+}
+function rebuildLeadPeriods(){
+  const sel = document.getElementById('lead-period');
+  const periodos = [...new Set(leads.map(l=>l.periodo).filter(Boolean))].sort((a,b)=>periodoSortKey(b)-periodoSortKey(a));
+  const keepCurrent = periodos.includes(leadPeriodFilter) ? leadPeriodFilter : 'TODOS';
+  sel.innerHTML = '<option value="TODOS">Todos os períodos</option>' +
+    periodos.map(p=>`<option value="${p}" ${p===keepCurrent?'selected':''}>${periodoLabel(p)}</option>`).join('');
+  leadPeriodFilter = keepCurrent;
+}
 
-const STATUS_LABELS = {novo:'Não contatado', contatado:'Contatado', fechou:'Fechou', perdeu:'Não fechou'};
+const STATUS_LABELS = {novo:'Aguardando retorno', contatado:'Contatado', fechou:'Fechou', perdeu:'Não fechou'};
 function loadStatuses(){
   try{ return JSON.parse(localStorage.getItem('lead-status-map')||'{}'); }catch(e){ return {}; }
 }
@@ -841,11 +867,19 @@ function saveStatus(id, status){
   localStorage.setItem('lead-status-map', JSON.stringify(map));
 }
 function getStatus(l){ return loadStatuses()[l.id] || 'novo'; }
+function loadLeadNotes(){
+  try{ return JSON.parse(localStorage.getItem('lead-notes-map')||'{}'); }catch(e){ return {}; }
+}
+function saveLeadNote(id, note){
+  const map = loadLeadNotes(); map[id] = note;
+  localStorage.setItem('lead-notes-map', JSON.stringify(map));
+}
+function getLeadNote(l){ return loadLeadNotes()[l.id] || ''; }
 
 let leadStatusFilter = 'TODOS';
-let leadPeriodFilter = 'JUNHO';
+let leadPeriodFilter = 'JUNHO/2026';
 function renderLeadStatusChips(){
-  const opts = [['TODOS','Todos'],['novo','Não contatado'],['contatado','Contatado'],['fechou','Fechou'],['perdeu','Não fechou']];
+  const opts = [['TODOS','Todos'],['novo','Aguardando retorno'],['contatado','Contatado'],['fechou','Fechou'],['perdeu','Não fechou']];
   document.getElementById('lead-status-chips').innerHTML = opts.map(([v,l])=>
     `<div class="chip ${v===leadStatusFilter?'active':''}" data-s="${v}">${l}</div>`
   ).join('');
@@ -881,7 +915,7 @@ function renderGoals(){
   const period = leadPeriodFilter;
   let receita = 0;
   if(period==='TODOS'){ receita = Object.values(financeiro).reduce((s,d)=>s+d.receita,0); }
-  else { const key = period.toLowerCase(); receita = (financeiro[key]&&financeiro[key].receita) || 0; }
+  else { const key = period.split('/')[0].toLowerCase(); receita = (financeiro[key]&&financeiro[key].receita) || 0; }
   const pct = Math.min(100, receita/15000*100);
   document.getElementById('goal-receita-num').textContent = brl(receita) + ' · ' + pct.toFixed(0) + '%';
   document.getElementById('goal-receita-bar').style.width = pct + '%';
@@ -894,6 +928,7 @@ function renderGoals(){
 }
 
 function renderLeads(){
+  rebuildLeadPeriods();
   renderLeadStatusChips();
   renderGoals();
   const list = document.getElementById('lead-list');
@@ -914,6 +949,7 @@ function renderLeads(){
       </div>
       <div class="lead-tags">${l.precisa.map(p=>`<span class="tag">${p}</span>`).join('')}<span class="tag">${l.cidade}</span><span class="tag">${l.porte}</span>${l.dataSolicitacao?`<span class="tag">Solicitado em ${l.dataSolicitacao}</span>`:''}</div>
       <a class="wa-link" href="https://wa.me/55${l.whats}?text=${encodeURIComponent(buildMessage(l))}" target="_blank" onclick="event.stopPropagation()">↗ Enviar mensagem no WhatsApp (${l.whats})</a>
+      ${getLeadNote(l) ? `<div class="lead-note-preview">📝 ${getLeadNote(l).slice(0,90)}${getLeadNote(l).length>90?'...':''}</div>` : ''}
     </div>
   `;}).join('');
 }
@@ -943,6 +979,16 @@ function openLead(id){
     });
   }
   renderStatusButtons();
+  const notesEl = document.getElementById('modal-notes');
+  notesEl.value = getLeadNote(l);
+  const savedHint = document.getElementById('notes-saved-hint');
+  savedHint.textContent = '';
+  notesEl.oninput = ()=>{ savedHint.textContent = ''; };
+  notesEl.onblur = ()=>{
+    saveLeadNote(l.id, notesEl.value);
+    savedHint.textContent = 'Salvo ✓';
+    renderLeads();
+  };
   const msg = buildMessage(l);
   document.getElementById('modal-message').textContent = msg;
   document.getElementById('modal-wa').href = `https://wa.me/55${l.whats}?text=${encodeURIComponent(msg)}`;
@@ -982,19 +1028,38 @@ document.getElementById('csv-input').addEventListener('change',(e)=>{
     const rows = parseCSV(ev.target.result);
     const header = rows[0];
     const idx = (name)=> header.findIndex(h=>h.toLowerCase().includes(name));
-    const iNome = idx('nome'); const iMarca = idx('marca'); const iArea = idx('atuação');
+    const iNome = idx('seu nome')>=0 ? idx('seu nome') : idx('nome');
+    const iMarca = idx('nome da sua marca')>=0 ? idx('nome da sua marca') : idx('marca');
+    const iArea = idx('atuação');
     const iTempo = idx('tempo'); const iPrecisa = idx('precisa'); const iCidade = idx('cidade');
     const iInsta = idx('instagram'); const iWhats = idx('whatsapp'); const iPorte = idx('porte');
     const iOrigem = idx('conheceu'); const iHorario = idx('horário'); const iData = idx('carimbo')>=0?idx('carimbo'):idx('data/hora');
-    const mesesPt = ['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
-    const periodoAtual = mesesPt[new Date().getMonth()];
-    const parsed = rows.slice(1).filter(r=>r.length>1).map((r,idx)=>({
-      id:'csv-'+idx+'-'+Date.now(),
-      nome: r[iNome]||'Sem nome', marca: r[iMarca]||'—', area: r[iArea]||'—',
-      tempo: r[iTempo]||'', precisa: (r[iPrecisa]||'').split(';').map(s=>s.trim()).filter(Boolean),
-      cidade: r[iCidade]||'', insta: r[iInsta]||'', whats:(r[iWhats]||'').replace(/\D/g,''),
-      porte: r[iPorte]||'', origem: r[iOrigem]||'', horario: r[iHorario]||'', periodo: periodoAtual, dataSolicitacao: (iData>=0?r[iData]:'')||''
-    }));
+    function parseTimestamp(ts){
+      const m = (ts||'').match(/(\d{4})[\/\-](\d{2})[\/\-](\d{2})/);
+      if(!m) return { periodo:'', dataFmt: ts||'' };
+      const [, y, mo, d] = m;
+      const periodo = MESES_PT[parseInt(mo,10)-1] + '/' + y;
+      return { periodo, dataFmt: `${d}/${mo}/${y}` };
+    }
+    function stableId(raw){
+      // hash simples e determinístico — mesmo conteúdo sempre gera o mesmo id, mesmo em uploads diferentes
+      let h = 0;
+      for(let i=0;i<raw.length;i++){ h = ((h<<5)-h + raw.charCodeAt(i))|0; }
+      return 'lead-' + Math.abs(h).toString(36);
+    }
+    const parsed = rows.slice(1).filter(r=>r.length>1 && (r[iNome]||'').trim()).map((r)=>{
+      const { periodo, dataFmt } = parseTimestamp(iData>=0?r[iData]:'');
+      const rawTs = (iData>=0?r[iData]:'')||'';
+      const whatsRaw = (r[iWhats]||'').replace(/\D/g,'');
+      const id = stableId(rawTs + '|' + whatsRaw + '|' + (r[iNome]||'').trim());
+      return {
+        id,
+        nome: r[iNome]||'Sem nome', marca: r[iMarca]||'—', area: r[iArea]||'—',
+        tempo: r[iTempo]||'', precisa: (r[iPrecisa]||'').split(';').map(s=>s.trim()).filter(Boolean),
+        cidade: r[iCidade]||'', insta: r[iInsta]||'', whats: whatsRaw,
+        porte: r[iPorte]||'', origem: r[iOrigem]||'', horario: r[iHorario]||'', periodo, dataSolicitacao: dataFmt
+      };
+    });
     if(parsed.length){ leads = parsed; renderLeads(); }
   };
   reader.readAsText(file);
