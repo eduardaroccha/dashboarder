@@ -331,14 +331,7 @@
   <!-- LEADS -->
   <div class="panel" id="panel-leads">
     <h2 class="section-title">Leads & <span class="accent">orçamentos</span></h2>
-    <p class="section-sub">Suba o CSV das respostas do formulário para organizar os leads automaticamente.</p>
-
-    <label class="upload-zone" id="upload-zone">
-      <div class="upload-icon">↑</div>
-      <div class="upload-text">Clique para subir o CSV do Google Forms</div>
-      <div class="upload-sub">ou arraste o arquivo aqui</div>
-      <input type="file" id="csv-input" accept=".csv">
-    </label>
+    <p class="section-sub">Sincronizado automaticamente com as respostas do formulário.</p>
 
     <div class="grid two" style="margin-bottom:16px;">
       <div class="goal-card">
@@ -837,9 +830,20 @@ document.getElementById('contracts-list').innerHTML = contratos.map(c=>`
 `).join('');
 
 /* ---------- leads ---------- */
-let leads = [
-  {id:'lead-1', nome:'Amanda Ribeiro de Sousa', marca:'Nutri Performance', area:'Loja de Suplementos', tempo:'começando agora', precisa:['Identidade Visual','Design de Posts'], cidade:'Pompéu', insta:'@nutriperformance14', whats:'37998120074', porte:'MEI', origem:'Instagram', horario:'Entre 09h às 12h', periodo:'JUNHO/2026', dataSolicitacao:'15/06/2026'}
-];
+const LEADS_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSgI017dUxgih3G0dQWQqD8Zv-iULf0maKGZveVDNsdEhwsizXIxeyJwBOaPlbExSu7sH4gfO_6ElrC/pub?gid=2140604839&single=true&output=csv';
+function loadSavedLeads(){
+  try{
+    const cached = JSON.parse(localStorage.getItem('leads-cache')||'[]');
+    if(cached.length) return cached;
+  }catch(e){}
+  return [
+    {id:'lead-1', nome:'Amanda Ribeiro de Sousa', marca:'Nutri Performance', area:'Loja de Suplementos', tempo:'começando agora', precisa:['Identidade Visual','Design de Posts'], cidade:'Pompéu', insta:'@nutriperformance14', whats:'37998120074', porte:'MEI', origem:'Instagram', horario:'Entre 09h às 12h', periodo:'JUNHO/2026', dataSolicitacao:'15/06/2026'}
+  ];
+}
+function saveLeadsCache(arr){
+  try{ localStorage.setItem('leads-cache', JSON.stringify(arr)); }catch(e){}
+}
+let leads = loadSavedLeads();
 const MESES_PT = ['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
 function periodoLabel(p){
   const [mes,ano] = p.split('/');
@@ -1020,50 +1024,66 @@ function parseCSV(text){
   if(field!==''||row.length){ row.push(field); rows.push(row); }
   return rows;
 }
-document.getElementById('csv-input').addEventListener('change',(e)=>{
-  const file = e.target.files[0];
-  if(!file) return;
-  const reader = new FileReader();
-  reader.onload = (ev)=>{
-    const rows = parseCSV(ev.target.result);
-    const header = rows[0];
-    const idx = (name)=> header.findIndex(h=>h.toLowerCase().includes(name));
-    const iNome = idx('seu nome')>=0 ? idx('seu nome') : idx('nome');
-    const iMarca = idx('nome da sua marca')>=0 ? idx('nome da sua marca') : idx('marca');
-    const iArea = idx('atuação');
-    const iTempo = idx('tempo'); const iPrecisa = idx('precisa'); const iCidade = idx('cidade');
-    const iInsta = idx('instagram'); const iWhats = idx('whatsapp'); const iPorte = idx('porte');
-    const iOrigem = idx('conheceu'); const iHorario = idx('horário'); const iData = idx('carimbo')>=0?idx('carimbo'):idx('data/hora');
-    function parseTimestamp(ts){
-      const m = (ts||'').match(/(\d{4})[\/\-](\d{2})[\/\-](\d{2})/);
-      if(!m) return { periodo:'', dataFmt: ts||'' };
-      const [, y, mo, d] = m;
-      const periodo = MESES_PT[parseInt(mo,10)-1] + '/' + y;
-      return { periodo, dataFmt: `${d}/${mo}/${y}` };
-    }
-    function stableId(raw){
-      // hash simples e determinístico — mesmo conteúdo sempre gera o mesmo id, mesmo em uploads diferentes
-      let h = 0;
-      for(let i=0;i<raw.length;i++){ h = ((h<<5)-h + raw.charCodeAt(i))|0; }
-      return 'lead-' + Math.abs(h).toString(36);
-    }
-    const parsed = rows.slice(1).filter(r=>r.length>1 && (r[iNome]||'').trim()).map((r)=>{
-      const { periodo, dataFmt } = parseTimestamp(iData>=0?r[iData]:'');
-      const rawTs = (iData>=0?r[iData]:'')||'';
-      const whatsRaw = (r[iWhats]||'').replace(/\D/g,'');
-      const id = stableId(rawTs + '|' + whatsRaw + '|' + (r[iNome]||'').trim());
-      return {
-        id,
-        nome: r[iNome]||'Sem nome', marca: r[iMarca]||'—', area: r[iArea]||'—',
-        tempo: r[iTempo]||'', precisa: (r[iPrecisa]||'').split(';').map(s=>s.trim()).filter(Boolean),
-        cidade: r[iCidade]||'', insta: r[iInsta]||'', whats: whatsRaw,
-        porte: r[iPorte]||'', origem: r[iOrigem]||'', horario: r[iHorario]||'', periodo, dataSolicitacao: dataFmt
-      };
-    });
-    if(parsed.length){ leads = parsed; renderLeads(); }
-  };
-  reader.readAsText(file);
-});
+function parseLeadTimestamp(ts){
+  const t = (ts||'').trim();
+  // formato do carimbo do Google Forms: DD/MM/AAAA HH:MM:SS
+  let m = t.match(/^(\d{2})[\/\-](\d{2})[\/\-](\d{4})/);
+  if(m){
+    const [, d, mo, y] = m;
+    const periodo = MESES_PT[parseInt(mo,10)-1] + '/' + y;
+    return { periodo, dataFmt: `${d}/${mo}/${y}` };
+  }
+  // fallback: formato ISO AAAA-MM-DD (por segurança, caso a fonte mude)
+  m = t.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})/);
+  if(m){
+    const [, y, mo, d] = m;
+    const periodo = MESES_PT[parseInt(mo,10)-1] + '/' + y;
+    return { periodo, dataFmt: `${d}/${mo}/${y}` };
+  }
+  return { periodo:'', dataFmt: t };
+}
+function stableLeadId(raw){
+  // hash simples e determinístico — mesmo conteúdo sempre gera o mesmo id, mesmo em buscas diferentes
+  let h = 0;
+  for(let i=0;i<raw.length;i++){ h = ((h<<5)-h + raw.charCodeAt(i))|0; }
+  return 'lead-' + Math.abs(h).toString(36);
+}
+function parseLeadsCSV(text){
+  const rows = parseCSV(text);
+  const header = rows[0];
+  const idx = (name)=> header.findIndex(h=>h.toLowerCase().includes(name));
+  const iNome = idx('seu nome')>=0 ? idx('seu nome') : idx('nome');
+  const iMarca = idx('nome da sua marca')>=0 ? idx('nome da sua marca') : idx('marca');
+  const iArea = idx('atuação');
+  const iTempo = idx('tempo'); const iPrecisa = idx('precisa'); const iCidade = idx('cidade');
+  const iInsta = idx('instagram'); const iWhats = idx('whatsapp'); const iPorte = idx('porte');
+  const iOrigem = idx('conheceu'); const iHorario = idx('horário'); const iData = idx('carimbo')>=0?idx('carimbo'):idx('data/hora');
+  return rows.slice(1).filter(r=>r.length>1 && (r[iNome]||'').trim()).map((r)=>{
+    const { periodo, dataFmt } = parseLeadTimestamp(iData>=0?r[iData]:'');
+    const rawTs = (iData>=0?r[iData]:'')||'';
+    const whatsRaw = (r[iWhats]||'').replace(/\D/g,'');
+    const id = stableLeadId(rawTs + '|' + whatsRaw + '|' + (r[iNome]||'').trim());
+    return {
+      id,
+      nome: r[iNome]||'Sem nome', marca: r[iMarca]||'—', area: r[iArea]||'—',
+      tempo: r[iTempo]||'', precisa: (r[iPrecisa]||'').split(';').map(s=>s.trim()).filter(Boolean),
+      cidade: r[iCidade]||'', insta: r[iInsta]||'', whats: whatsRaw,
+      porte: r[iPorte]||'', origem: r[iOrigem]||'', horario: r[iHorario]||'', periodo, dataSolicitacao: dataFmt
+    };
+  });
+}
+async function loadLiveLeads(){
+  try{
+    const res = await fetch(LEADS_CSV_URL);
+    const text = await res.text();
+    const parsed = parseLeadsCSV(text);
+    if(parsed.length){ leads = parsed; saveLeadsCache(leads); }
+  }catch(err){
+    console.error('Falha ao buscar leads ao vivo:', err);
+  }
+  renderLeads();
+}
+loadLiveLeads();
 </script>
 </body>
 </html>
