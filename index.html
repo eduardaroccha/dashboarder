@@ -390,6 +390,7 @@ const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTme9eqSUpIKoZK
 const MES_ORDER = ['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
 let EXTRATO_DATA = [];
 let financeiro = {};
+function brl(v){ return 'R$ ' + (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}); }
 
 function parseCSVGeneric(text){
   const rows=[]; let row=[]; let field=''; let inQuotes=false;
