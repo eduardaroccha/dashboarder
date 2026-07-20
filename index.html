@@ -163,6 +163,21 @@
   .check-section-title{ font-size:13px; font-weight:700; margin:0 0 4px; }
   .value-input{ font-family:'Montserrat',sans-serif; font-size:13px; font-weight:600; text-align:right; width:90px; border:1px solid var(--line); border-radius:8px; padding:6px 8px; color:var(--near-black); background:var(--off-white); flex-shrink:0; }
   .value-input:focus{ outline:none; border-color:var(--gold-1); background:var(--white); }
+  .cname-wrap{ flex:1; min-width:0; }
+  .name-input{ font-family:'Montserrat',sans-serif; font-size:13.5px; font-weight:600; color:var(--near-black); background:transparent; border:1px solid transparent; border-radius:6px; padding:3px 6px; width:100%; }
+  .name-input:hover{ border-color:var(--line); background:var(--off-white); }
+  .name-input:focus{ outline:none; border-color:var(--gold-1); background:var(--white); }
+  .check-row.paid .name-input{ color:var(--gray-500); text-decoration:line-through; }
+  .due-label{ font-size:10.5px; color:var(--gray-500); font-weight:400; padding:0 6px; }
+  .remove-item-btn{ border:none; background:transparent; color:var(--gray-500); font-size:18px; line-height:1; cursor:pointer; padding:2px 6px; flex-shrink:0; }
+  .remove-item-btn:hover{ color:#B33; }
+  .add-item-row{ display:flex; gap:8px; align-items:center; margin-top:12px; padding-top:12px; border-top:1px dashed var(--line); }
+  .add-item-row input[type=text]{ font-family:'Montserrat',sans-serif; font-size:12.5px; border:1px solid var(--line); border-radius:8px; padding:6px 8px; background:var(--off-white); color:var(--near-black); }
+  .add-item-row input.add-name{ flex:1; min-width:0; }
+  .add-item-row input.add-value{ width:80px; }
+  .add-item-row input.add-day{ width:44px; text-align:center; }
+  .add-item-row button{ font-family:'Montserrat',sans-serif; font-size:12px; font-weight:700; border:none; border-radius:8px; padding:7px 12px; background:var(--gold-1); color:var(--white); cursor:pointer; flex-shrink:0; }
+  .add-item-row button:hover{ opacity:0.88; }
 
   .goal-card{ background:var(--white); border:1px solid var(--line); border-radius:var(--radius); padding:20px 22px; margin-bottom:10px;}
   .goal-top{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px;}
@@ -192,6 +207,12 @@
   .field-row{ display:grid; grid-template-columns:110px 1fr; gap:6px; font-size:13px; padding:7px 0; border-bottom:1px solid var(--off-white-2); }
   .field-row b{ color:var(--gray-500); font-weight:600; font-size:11.5px; text-transform:uppercase; letter-spacing:0.4px; }
   .msg-box{ background:var(--off-white); border:1px solid var(--line); border-radius:12px; padding:16px; font-size:13px; line-height:1.6; margin-top:16px; white-space:pre-wrap; }
+  .raw-details{ margin-top:10px; }
+  .raw-summary{ cursor:pointer; color:var(--gold-1); font-weight:700; font-size:12.5px; list-style:none; }
+  .raw-summary::-webkit-details-marker{ display:none; }
+  .raw-summary:hover{ text-decoration:underline; }
+  .raw-fields{ margin-top:10px; background:var(--off-white); border-radius:12px; padding:4px 14px; }
+  .raw-fields .field-row{ grid-template-columns:150px 1fr; }
   .btn-row{ display:flex; gap:10px; margin-top:16px; }
   .btn{ flex:1; text-align:center; padding:12px; border-radius:10px; font-size:13px; font-weight:600; cursor:pointer; border:none; text-decoration:none; }
   .btn.primary{ background:var(--near-black); color:var(--off-white); }
@@ -311,12 +332,24 @@
         <div class="check-summary" id="check-in-summary"></div>
         <div style="max-width:170px;margin:0 auto 12px;"><canvas id="chart-in"></canvas></div>
         <div id="check-in-list"></div>
+        <div class="add-item-row">
+          <input type="text" class="add-name" id="add-name-in" placeholder="Nome">
+          <input type="text" class="add-value" id="add-value-in" placeholder="Valor">
+          <input type="text" class="add-day" id="add-day-in" placeholder="Dia">
+          <button id="add-btn-in" type="button">+ Adicionar</button>
+        </div>
       </div>
       <div class="card">
         <div class="check-section-title">Saídas fixas (equipe, ferramentas & investimentos)</div>
         <div class="check-summary" id="check-out-summary"></div>
         <div style="max-width:170px;margin:0 auto 12px;"><canvas id="chart-out"></canvas></div>
         <div id="check-out-list"></div>
+        <div class="add-item-row">
+          <input type="text" class="add-name" id="add-name-out" placeholder="Nome">
+          <input type="text" class="add-value" id="add-value-out" placeholder="Valor">
+          <input type="text" class="add-day" id="add-day-out" placeholder="Dia">
+          <button id="add-btn-out" type="button">+ Adicionar</button>
+        </div>
       </div>
     </div>
   </div>
@@ -362,6 +395,10 @@
     <h3 id="modal-name">Nome do lead</h3>
     <div class="sub" id="modal-brand">Marca</div>
     <div id="modal-fields"></div>
+    <details class="raw-details" id="modal-raw-details">
+      <summary class="raw-summary">Ver formulário completo ↗</summary>
+      <div id="modal-raw-fields" class="raw-fields"></div>
+    </details>
     <div class="status-btn-row" id="modal-status-row"></div>
     <div class="notes-block">
       <label class="notes-label" for="modal-notes">Observações</label>
@@ -710,28 +747,29 @@ document.getElementById('extrato-period').addEventListener('change',(e)=>{
 
 /* ---------- checklist ---------- */
 const CHECKLIST_ENTRADAS = [
-  {nome:'Essence Clinic', valor:1540.00, dia:'02'},
-  {nome:'Larissa Odete da Silva Barbosa', valor:1275.00, dia:'05'},
-  {nome:'Elévasse Odontologia', valor:1299.00, dia:'05'},
-  {nome:'ENXOVAIS BURITI LTDA', valor:1417.00, dia:'15'},
-  {nome:'Isabela Ferreira Santos', valor:1069.67, dia:'09'},
-  {nome:'Lara Salgado Capanema', valor:848.00, dia:'10'},
-  {nome:'Grazielle Barbosa Lopes Parreiras', valor:616.00, dia:'25'},
-  {nome:'Centro Odontológico Volte a Sorrir', valor:1567.00, dia:'22'},
-  {nome:'Uyara Colen', valor:987.00, dia:'23'},
-  {nome:'Wanessa Giselle Valadares e Silva', valor:640.00, dia:'22'},
-  {nome:'Larissa França Gonçalves', valor:1297.00, dia:'05'},
+  {key:'essence-clinic', nome:'Essence Clinic', valor:1540.00, dia:'02'},
+  {key:'larissa-odete', nome:'Larissa Odete da Silva Barbosa', valor:1275.00, dia:'05'},
+  {key:'elevasse-odontologia', nome:'Elévasse Odontologia', valor:1299.00, dia:'05'},
+  {key:'enxovais-buriti', nome:'ENXOVAIS BURITI LTDA', valor:1417.00, dia:'15'},
+  {key:'isabela-ferreira', nome:'Isabela Ferreira Santos', valor:1069.67, dia:'09'},
+  {key:'lara-salgado', nome:'Lara Salgado Capanema', valor:848.00, dia:'10'},
+  {key:'grazielle-barbosa', nome:'Grazielle Barbosa Lopes Parreiras', valor:616.00, dia:'25'},
+  {key:'centro-odonto-volte-a-sorrir', nome:'Centro Odontológico Volte a Sorrir', valor:1567.00, dia:'22'},
+  {key:'uyara-colen', nome:'Uyara Colen', valor:987.00, dia:'23'},
+  {key:'wanessa-giselle', nome:'Wanessa Giselle Valadares e Silva', valor:640.00, dia:'22'},
+  {key:'larissa-franca', nome:'Larissa França Gonçalves', valor:1297.00, dia:'05'},
 ];
 const CHECKLIST_SAIDAS = [
-  {nome:'Sualis Martins (Editora)', valor:1650.00, grupo:'Equipe (salários)', dia:'15'},
-  {nome:'Danyele Melgaço (Editora de Vídeos)', valor:885.50, grupo:'Equipe (salários)', dia:'22'},
-  {nome:'Gabriela Zolin (Designer)', valor:227.00, grupo:'Equipe (salários)', dia:'26'},
-  {nome:'Ananda Oliveira (Editora)', valor:2400.00, grupo:'Equipe (salários)', dia:'22'},
-  {nome:'Edinalva Amorim / Nalva (Designer)', valor:1320.00, grupo:'Equipe (salários)', dia:'25'},
-  {nome:'Assinatura Mlabs', valor:103.40, grupo:'Ferramentas & Fornecedores', dia:'30'},
-  {nome:'Cartão Asaas (fatura)', valor:24.98, grupo:'Ferramentas & Fornecedores', dia:'19'},
-  {nome:'Cartão Nubank (fatura)', valor:867.03, grupo:'Ferramentas & Fornecedores', dia:'26'},
-  {nome:'Investimento — iPhone (parcela)', valor:470.08, grupo:'Investimentos', dia:'26'},
+  {key:'sualis-martins', nome:'Sualis Martins (Editora)', valor:1650.00, grupo:'Equipe (salários)', dia:'15'},
+  {key:'danyele-melgaco', nome:'Danyele Melgaço (Editora de Vídeos)', valor:885.50, grupo:'Equipe (salários)', dia:'22'},
+  {key:'gabriela-zolin', nome:'Gabriela Zolin (Designer)', valor:227.00, grupo:'Equipe (salários)', dia:'26'},
+  {key:'ananda-oliveira', nome:'Ananda Oliveira (Editora)', valor:2400.00, grupo:'Equipe (salários)', dia:'22'},
+  {key:'edinalva-amorim', nome:'Edinalva Amorim / Nalva (Designer)', valor:1320.00, grupo:'Equipe (salários)', dia:'25'},
+  {key:'cartao-asaas', nome:'Cartão Asaas (fatura)', valor:24.98, grupo:'Ferramentas & Fornecedores', dia:'19'},
+  {key:'cartao-nubank', nome:'Cartão Nubank (fatura)', valor:867.03, grupo:'Ferramentas & Fornecedores', dia:'26'},
+  {key:'investimento-iphone', nome:'Investimento — iPhone (parcela)', valor:470.08, grupo:'Investimentos', dia:'26'},
+  {key:'investimento-mentoria', nome:'Investimento — Mentoria (M Eduarda Gomes Toleto)', valor:943.50, grupo:'Investimentos', dia:'10'},
+  {key:'imposto', nome:'Imposto', valor:0, grupo:'Impostos', dia:'20'},
 ];
 function loadChecklist(){
   try{ return JSON.parse(localStorage.getItem('checklist-map')||'{}'); }catch(e){ return {}; }
@@ -747,9 +785,45 @@ function saveChecklistValue(id, val){
   const map = loadChecklistValues(); map[id] = val;
   localStorage.setItem('checklist-values', JSON.stringify(map));
 }
+function loadChecklistNames(){
+  try{ return JSON.parse(localStorage.getItem('checklist-names')||'{}'); }catch(e){ return {}; }
+}
+function saveChecklistName(key, nome){
+  const map = loadChecklistNames(); map[key] = nome;
+  localStorage.setItem('checklist-names', JSON.stringify(map));
+}
+function loadCustomItems(tipo){
+  try{ return JSON.parse(localStorage.getItem('checklist-custom-'+tipo)||'[]'); }catch(e){ return []; }
+}
+function saveCustomItems(tipo, arr){
+  localStorage.setItem('checklist-custom-'+tipo, JSON.stringify(arr));
+}
+function addCustomItem(tipo, nome, valor, dia){
+  const arr = loadCustomItems(tipo);
+  const key = 'custom-'+Date.now()+'-'+Math.random().toString(36).slice(2,6);
+  arr.push({key, nome, valor, dia, custom:true});
+  saveCustomItems(tipo, arr);
+}
+function removeCustomItem(tipo, key){
+  const arr = loadCustomItems(tipo).filter(it=>it.key!==key);
+  saveCustomItems(tipo, arr);
+}
+function escapeHtml(s){
+  return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
 function firstNameToken(nome){ return nome.split(/[\s(—]/)[0].toUpperCase(); }
-function autoPaidFromExtrato(nome, mes, grupo){
-  return EXTRATO_DATA.some(r=>r.mes===mes && r.grupo===grupo && r.desc.toUpperCase().includes(firstNameToken(nome)));
+function findExtratoMatch(nome, mes, grupo, valorEsperado){
+  const token = firstNameToken(nome);
+  // 1ª tentativa: mesmo mês, mesmo grupo, nome bate na descrição
+  let candidates = EXTRATO_DATA.filter(r=>r.mes===mes && r.grupo===grupo && r.desc.toUpperCase().includes(token));
+  // fallback: ignora o grupo (caso a categorização na planilha tenha ficado diferente), mas exige nome + mês
+  if(!candidates.length){
+    candidates = EXTRATO_DATA.filter(r=>r.mes===mes && r.desc.toUpperCase().includes(token));
+  }
+  if(!candidates.length) return null;
+  // entre os candidatos, pega o valor mais próximo do esperado (evita pegar a transação errada quando há homônimos)
+  candidates.sort((a,b)=>Math.abs(a.valor-valorEsperado)-Math.abs(b.valor-valorEsperado));
+  return candidates[0];
 }
 let chartIn, chartOut;
 function renderDonut(canvasId, paidSum, pendingSum, existingChartVar){
@@ -773,20 +847,29 @@ function renderChecklist(){
   const period = sel.value;
   const map = loadChecklist();
   const valuesMap = loadChecklistValues();
+  const namesMap = loadChecklistNames();
 
-  function renderList(items, defaultGrupo, containerId, summaryId, chartId, chartVarName){
+  function renderList(baseItems, tipo, defaultGrupo, containerId, summaryId, chartId, chartVarName){
+    const items = [...baseItems, ...loadCustomItems(tipo)];
     let paidCount = 0, paidSum = 0, pendingSum = 0;
     const html = items.map(item=>{
+      const key = item.key;
       const grupo = item.grupo || defaultGrupo;
-      const id = period+'|'+grupo+'|'+item.nome;
+      const id = period+'|'+grupo+'|'+key;
+      const nome = namesMap[key]!==undefined ? namesMap[key] : item.nome;
       const hasOverride = Object.prototype.hasOwnProperty.call(map,id);
-      const paid = hasOverride ? map[id] : autoPaidFromExtrato(item.nome, period, grupo);
-      const valor = valuesMap[id]!==undefined ? valuesMap[id] : item.valor;
+      const match = item.valor ? findExtratoMatch(nome, period, grupo, item.valor) : null;
+      const paid = hasOverride ? map[id] : !!match;
+      const valor = valuesMap[id]!==undefined ? valuesMap[id] : (match ? match.valor : item.valor);
       if(paid){ paidCount++; paidSum += valor; } else { pendingSum += valor; }
       return `<div class="check-row ${paid?'paid':''}">
         <input type="checkbox" data-id="${id}" ${paid?'checked':''}>
-        <div class="cname">${item.nome}<div style="font-size:10.5px;color:var(--gray-500);font-weight:400;">Vencimento: dia ${item.dia}</div></div>
-        <input type="number" step="0.01" class="value-input" data-vid="${id}" value="${valor.toFixed(2)}">
+        <div class="cname-wrap">
+          <input type="text" class="name-input" data-nid="${key}" value="${escapeHtml(nome)}">
+          <div class="due-label">Vencimento: dia ${item.dia||'—'}</div>
+        </div>
+        <input type="number" step="0.01" class="value-input" data-vid="${id}" value="${(valor||0).toFixed(2)}">
+        ${item.custom ? `<button type="button" class="remove-item-btn" data-remove-tipo="${tipo}" data-remove-key="${key}" title="Remover item">×</button>` : ''}
       </div>`;
     }).join('');
     document.getElementById(containerId).innerHTML = html;
@@ -797,13 +880,34 @@ function renderChecklist(){
     document.querySelectorAll(`#${containerId} .value-input`).forEach(inp=>{
       inp.addEventListener('change',()=>{ saveChecklistValue(inp.dataset.vid, parseFloat(inp.value)||0); renderChecklist(); });
     });
+    document.querySelectorAll(`#${containerId} .name-input`).forEach(inp=>{
+      inp.addEventListener('change',()=>{ saveChecklistName(inp.dataset.nid, inp.value.trim()); renderChecklist(); });
+    });
+    document.querySelectorAll(`#${containerId} .remove-item-btn`).forEach(btn=>{
+      btn.addEventListener('click',()=>{ removeCustomItem(btn.dataset.removeTipo, btn.dataset.removeKey); renderChecklist(); });
+    });
     if(chartVarName==='in') chartIn = renderDonut(chartId, paidSum, pendingSum, chartIn);
     else chartOut = renderDonut(chartId, paidSum, pendingSum, chartOut);
   }
-  renderList(CHECKLIST_ENTRADAS, 'Gestão (fixo)', 'check-in-list', 'check-in-summary', 'chart-in', 'in');
-  renderList(CHECKLIST_SAIDAS, 'Equipe (salários)', 'check-out-list', 'check-out-summary', 'chart-out', 'out');
+  renderList(CHECKLIST_ENTRADAS, 'entradas', 'Gestão (fixo)', 'check-in-list', 'check-in-summary', 'chart-in', 'in');
+  renderList(CHECKLIST_SAIDAS, 'saidas', 'Equipe (salários)', 'check-out-list', 'check-out-summary', 'chart-out', 'out');
 }
 document.getElementById('checklist-period').addEventListener('change', renderChecklist);
+function wireAddButton(btnId, nameId, valueId, dayId, tipo){
+  document.getElementById(btnId).addEventListener('click', ()=>{
+    const nome = document.getElementById(nameId).value.trim();
+    const valor = parseFloat((document.getElementById(valueId).value||'').replace(',','.'))||0;
+    const dia = document.getElementById(dayId).value.trim();
+    if(!nome) return;
+    addCustomItem(tipo, nome, valor, dia);
+    document.getElementById(nameId).value = '';
+    document.getElementById(valueId).value = '';
+    document.getElementById(dayId).value = '';
+    renderChecklist();
+  });
+}
+wireAddButton('add-btn-in','add-name-in','add-value-in','add-day-in','entradas');
+wireAddButton('add-btn-out','add-name-out','add-value-out','add-day-out','saidas');
 
 loadLiveData();
 
@@ -904,15 +1008,11 @@ function buildMessage(l){
   const precisaTxt = l.precisa.length>1
     ? l.precisa.slice(0,-1).join(', ') + ' e ' + l.precisa[l.precisa.length-1]
     : l.precisa[0];
-  const comeco = /come[çc]ando|in[íi]cio|pouco tempo/i.test(l.tempo)
-    ? `Vi que vocês estão começando agora e já pensando em ${precisaTxt.toLowerCase()} — isso conta muito, porque começar com uma marca bem construída evita retrabalho lá na frente.`
-    : `Vi que vocês precisam de ${precisaTxt.toLowerCase()} pra ${l.marca}, e isso costuma ser o ponto que realmente muda a forma como o público enxerga a marca.`;
   return `Olá ${firstName(l.nome)}, ${greeting()}! ☺️
-*Aqui é a Eduarda, da Eduarda Rocha Marketing.*
-Muito obrigada pela sua solicitação de orçamento para a ${l.marca}!
-(${comeco} Dei uma olhada no perfil e o nicho de ${l.area.toLowerCase()} tem bastante espaço pra se destacar visualmente.)
-*Me conta um pouco mais sobre o momento da ${l.marca} e o que vocês precisam nesse início*
-Fica à vontade pra mandar um áudio, se preferir. ✨`;
+Aqui é a Eduarda, da ER Marketing.
+Muito obrigada pela sua solicitação de orçamento para a ${l.marca}! Você comentou que precisam de ${(precisaTxt||'ajuda com o marketing').toLowerCase()}, certo? Hoje vocês tocam isso sozinhos, ou já contam com a ajuda de alguém?
+Me conte um pouco mais sobre o momento da ${l.marca} e o que vocês precisam nesse momento
+Fique à vontade pra mandar um áudio, se preferir. 🌟`;
 }
 
 function renderGoals(){
@@ -972,7 +1072,13 @@ function openLead(id){
     <div class="field-row"><b>Porte</b><span>${l.porte}</span></div>
     <div class="field-row"><b>Origem</b><span>${l.origem}</span></div>
     <div class="field-row"><b>Melhor horário</b><span>${l.horario}</span></div>
+    ${l.email?`<div class="field-row"><b>E-mail</b><span>${l.email}</span></div>`:''}
   `;
+  const rawDetails = document.getElementById('modal-raw-details');
+  rawDetails.open = false;
+  document.getElementById('modal-raw-fields').innerHTML = (l.raw||[]).map(f=>
+    `<div class="field-row"><b>${f.label}</b><span>${f.value}</span></div>`
+  ).join('') || '<div style="font-size:12.5px;color:var(--gray-500);">Sem dados adicionais.</div>';
   function renderStatusButtons(){
     const cur = getStatus(l);
     document.getElementById('modal-status-row').innerHTML = Object.keys(STATUS_LABELS).map(k=>
@@ -1058,17 +1164,22 @@ function parseLeadsCSV(text){
   const iTempo = idx('tempo'); const iPrecisa = idx('precisa'); const iCidade = idx('cidade');
   const iInsta = idx('instagram'); const iWhats = idx('whatsapp'); const iPorte = idx('porte');
   const iOrigem = idx('conheceu'); const iHorario = idx('horário'); const iData = idx('carimbo')>=0?idx('carimbo'):idx('data/hora');
+  const iEmail = idx('e-mail')>=0?idx('e-mail'):idx('email');
   return rows.slice(1).filter(r=>r.length>1 && (r[iNome]||'').trim()).map((r)=>{
     const { periodo, dataFmt } = parseLeadTimestamp(iData>=0?r[iData]:'');
     const rawTs = (iData>=0?r[iData]:'')||'';
     const whatsRaw = (r[iWhats]||'').replace(/\D/g,'');
     const id = stableLeadId(rawTs + '|' + whatsRaw + '|' + (r[iNome]||'').trim());
+    // guarda todas as perguntas/respostas originais do formulário, pra dar pra ver "na íntegra" no modal
+    const raw = header.map((h,i)=>({label:(h||'').replace(/\s+/g,' ').trim(), value:(r[i]||'').trim()}))
+      .filter(f=>f.label && f.value && !/obrigada pelo contato/i.test(f.label));
     return {
       id,
       nome: r[iNome]||'Sem nome', marca: r[iMarca]||'—', area: r[iArea]||'—',
       tempo: r[iTempo]||'', precisa: (r[iPrecisa]||'').split(';').map(s=>s.trim()).filter(Boolean),
-      cidade: r[iCidade]||'', insta: r[iInsta]||'', whats: whatsRaw,
-      porte: r[iPorte]||'', origem: r[iOrigem]||'', horario: r[iHorario]||'', periodo, dataSolicitacao: dataFmt
+      cidade: r[iCidade]||'', insta: r[iInsta]||'', whats: whatsRaw, email: iEmail>=0?(r[iEmail]||''):'',
+      porte: r[iPorte]||'', origem: r[iOrigem]||'', horario: r[iHorario]||'', periodo, dataSolicitacao: dataFmt,
+      raw
     };
   });
 }
